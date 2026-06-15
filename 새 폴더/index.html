@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Overwatch Style Game - Premium Edition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Teko:wght@600;700&family=Noto+Sans+KR:wght@500;900&display=swap" rel="stylesheet">
+
+    <style>
+        body, html { 
+            margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; background: #05050b; 
+            font-family: 'Teko', 'Noto Sans KR', sans-serif; user-select: none;
+        }
+        #canvas-container { width: 100%; height: 100%; position: absolute; top:0; left:0; z-index: 1; }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; 
+            border: 2px solid #ffffff; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 10;
+        }
+        /* 궁극기 붉은색 서부 필터 효과 */
+        #deadeye-overlay {
+            position: absolute; top:0; left:0; width:100%; height:100%;
+            background: radial-gradient(circle, rgba(255,40,0,0) 30%, rgba(120,10,0,0.6) 100%);
+            z-index: 5; pointer-events: none; display: none; mix-blend-mode: color-burn;
+        }
+        #ui-layer {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 20px; color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); 
+            pointer-events: none; z-index: 10; width: 90%; justify-content: space-between; max-width: 1200px;
+        }
+        #ui-layer .hud-box { 
+            background: linear-gradient(135deg, rgba(30,20,15,0.85), rgba(15,5,0,0.95)); 
+            padding: 8px 30px; border-radius: 4px; border-bottom: 5px solid #ff6600;
+            transform: skewX(-15deg); box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+        #ui-layer .hud-box.hp-box { border-bottom-color: #ffcc00; }
+        #ui-layer .hud-box.skill-box { border-bottom-color: #ff6600; width: 140px; text-align: center; }
+        #ui-layer .hud-title { font-size: 1.1rem; color: #e2b48c; letter-spacing: 1px; font-weight: 600; }
+        #ui-layer .hud-val { font-size: 3rem; font-weight: 700; color: #fff; line-height: 1; }
+        .ready { color: #ff9900; font-size: 1.6rem; font-weight: bold; }
+        .cooldown { color: #555555; font-size: 1.6rem; font-weight: bold; }
+
+        #ult-container {
+            position: absolute; bottom: 35px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; align-items: center; z-index: 10;
+        }
+        #ult-container #ult-circle {
+            width: 80px; height: 80px; border-radius: 50%; background: rgba(20,10,5,0.9);
+            border: 4px solid #443322; display: flex; align-items: center; justify-content: center;
+            font-size: 2rem; font-weight: 700; color: #aa8866; transition: 0.3s;
+        }
+        #ult-container #ult-circle.ult-ready { 
+            border-color: #ff3300 !important; color: #ffcc00 !important; 
+            box-shadow: 0 0 25px #ff3300 !important; animation: pulse 0.6s infinite alternate; 
+        }
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.08); } }
+
+        /* 궁극기 해골 마크 (가변 포지셔닝용 캔버스 또는 DOM 구조 레이어) */
+        #lockon-container { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events: none; z-index: 8; }
+        .skull-marker {
+            position: absolute; width: 40px; height: 40px;
+            border: 2px solid #ff3300; border-radius: 50%;
+            transform: translate(-50%, -50%) scale(2); opacity: 0;
+            transition: transform 1.5s cubic-bezier(0.1, 0.8, 0.2, 1), opacity 0.3s;
+            background: rgba(255, 0, 0, 0.1);
+        }
+        .skull-marker.locked {
+            transform: translate(-50%, -50%) scale(1); opacity: 1;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red"><path d="M12 2C9.24 2 7 4.24 7 7v3c0 1.84 1 3.44 2.5 4.27l-.5 3.73h6l-.5-3.73c1.5-.83 2.5-2.43 2.5-4.27V7c0-2.76-2.24-5-5-5zm-2 7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm4 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>') no-repeat center/contain;
+            border-color: transparent;
+        }
+
+        #damage-flash { position: absolute; width:100%; height:100%; background: rgba(255,0,0,0); pointer-events: none; z-index: 15; transition: background 0.1s; top:0; left:0; }
+        #hitmarker {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(45deg);
+            width: 14px; height: 14px; pointer-events: none; display: none; z-index: 11;
+        }
+        #hitmarker::before, #hitmarker::after { content: ''; position: absolute; background: #ffcc00; }
+        #hitmarker::before { top: 6px; left: 0; width: 14px; height: 2px; }
+        #hitmarker::after { top: 0; left: 6px; width: 2px; height: 14px; }
+
+        #skill-guide-panel {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, rgba(16, 24, 48, 0.85) 0%, rgba(5, 8, 16, 0.95) 100%);
+            backdrop-filter: blur(12px); z-index: 30; display: none; flex-direction: column; justify-content: center; align-items: center;
+        }
+        #skill-guide-panel .guide-container { width: 85%; max-width: 900px; background: rgba(0, 0, 0, 0.65); border: 3px solid rgba(255, 153, 0, 0.3); border-radius: 6px; padding: 35px; box-shadow: 0 0 40px rgba(0, 0, 0, 0.8); transform: skewX(-4deg); }
+        #skill-guide-panel .guide-header { font-size: 2.8rem; font-weight: 700; color: #ff9900; border-bottom: 3px solid #ff9900; padding-bottom: 5px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: flex-end; }
+        #skill-guide-panel .guide-header .sub-title { font-size: 1.3rem; color: #888; font-weight: normal; }
+        #skill-guide-panel .skill-row { display: flex; align-items: center; margin-bottom: 18px; background: linear-gradient(90deg, rgba(20,25,40,0.85) 0%, rgba(10,10,15,0.6) 100%); padding: 15px 20px; border-radius: 4px; border-left: 5px solid #00ccff; }
+        #skill-guide-panel .skill-row:hover { background: linear-gradient(90deg, rgba(30,40,65,0.9) 0%, rgba(15,15,25,0.7) 100%); border-left-color: #ff9900; }
+        #skill-guide-panel .skill-row:hover .skill-icon-wrapper { color: #ff9900; border-color: #ff9900; }
+        #skill-guide-panel .skill-row.weapon-row { border-left-color: #ff9900; }
+        #skill-guide-panel .skill-row.e-row { border-left-color: #ffcc00; }
+        #skill-guide-panel .skill-row.ult-row { border-left-color: #ff3333; }
+        #skill-guide-panel .skill-icon-wrapper { width: 65px; height: 65px; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.2); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; color: #00ccff; margin-right: 20px; flex-shrink: 0; }
+        #skill-guide-panel .key-badge { background: #ff9900; color: #000; font-weight: 700; padding: 2px 12px; border-radius: 3px; min-width: 60px; text-align: center; font-size: 1.4rem; margin-right: 25px; }
+        #skill-guide-panel .skill-info { font-family: 'Noto Sans KR', sans-serif; }
+        #skill-guide-panel .skill-info h3 { margin: 0 0 4px 0; font-size: 1.3rem; color: #fff; font-weight: 900; }
+        #skill-guide-panel .skill-info p { margin: 0; color: #cbd5e1; font-size: 0.95rem; line-height: 1.5; }
+        #skill-guide-panel .guide-footer { text-align: center; color: #888; margin-top: 25px; font-size: 1.2rem; }
+
+        #instructions { position: absolute; width:100%; height:100%; background: rgba(10,5,2,0.95); color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; cursor: pointer; text-align: center; top:0; left:0; }
+        #instructions h1 { color: #ff6600; font-size: 4rem; margin: 0; letter-spacing: 2px; }
+        #instructions .controls { color: #ffcc00; margin-top: 25px; font-size: 1.4rem; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+
+    <div id="crosshair"></div>
+    <div id="hitmarker"></div>
+    <div id="damage-flash"></div>
+    <div id="deadeye-overlay"></div>
+    <div id="lockon-container"></div>
+
+    <div id="ui-layer">
+        <div class="hud-box hp-box">
+            <div class="hud-title">HEALTH</div>
+            <div class="hud-val" id="hp">200</div>
+        </div>
+
+        <div class="skill-container">
+            <div class="hud-box skill-box">
+                <div class="hud-title">SHIFT - BLINK</div>
+                <div id="shift-status" class="ready">READY</div>
+            </div>
+            <div class="hud-box skill-box e-box">
+                <div class="hud-title">E - BIOTIC FIELD</div>
+                <div id="e-status" class="ready">READY</div>
+            </div>
+        </div>
+
+        <div class="hud-box">
+            <div class="hud-title">AMMO</div>
+            <div class="hud-val" id="ammo">30 / 30</div>
+        </div>
+    </div>
+
+    <div id="ult-container">
+        <div id="ult-circle">0%</div>
+        <div class="ult-label">[ Q ] ULTIMATE</div>
+    </div>
+
+    <div id="skill-guide-panel">
+        <div class="guide-container">
+            <div class="guide-header">
+                <span>HYBRID COMMANDO HERO GUIDE</span>
+                <span class="sub-title">영웅 정보 [F1]</span>
+            </div>
+
+            <div class="skill-row weapon-row">
+                <div class="skill-icon-wrapper">
+                    <i class="fa-solid fa-gun"></i>
+                </div>
+                <div class="key-badge">L-CLICK</div>
+                <div class="skill-info">
+                    <h3>리볼버 (Peacekeeper)</h3>
+                    <p>정확도 높은 6연발 단발 무기. R 클릭을 통해 언제든지 재장전할 수 있습니다.</p>
+                </div>
+            </div>
+
+            <div class="skill-row">
+                <div class="skill-icon-wrapper">
+                    <i class="fa-solid fa-bolt-lightning"></i>
+                </div>
+                <div class="key-badge">SHIFT</div>
+                <div class="skill-info">
+                    <h3>점멸 (Blink)</h3>
+                    <p>이동하는 벡터 방향으로 시공간을 순간적으로 왜곡해 앞 방향으로 거리를 압축 돌진합니다. (재사용 대기시간: 3초)</p>
+                </div>
+            </div>
+
+            <div class="skill-row e-row">
+                <div class="skill-icon-wrapper">
+                    <i class="fa-solid fa-circle-plus"></i>
+                </div>
+                <div class="key-badge">E</div>
+                <div class="skill-info">
+                    <h3>생체장 (Biotic Field)</h3>
+                    <p>자가 치유 장치입니다. 빛나는 원형 회복 장판을 투척하며, 내부에 있을 시 체력을 회복합니다.</p>
+                </div>
+            </div>
+
+            <div class="skill-row ult-row">
+                <div class="skill-icon-wrapper">
+                    <i class="fa-solid fa-skull"></i>
+                </div>
+                <div class="key-badge">Q</div>
+                <div class="skill-info">
+                    <h3>황야의 무법자 (Deadeye)</h3>
+                    <p>시야에 들어오는 모든 타깃을 락온하여 대기 시간을 가진 후 확실하게 처치합니다.</p>
+                </div>
+            </div>
+
+            <div class="guide-footer">💡 전투로 돌아가려면 <span style="color:#ff9900; font-weight:bold;">[F1]</span> 키를 한 번 더 누르십시오.</div>
+        </div>
+    </div>
+
+    <div id="instructions">
+        <h1>WESTERN SHOWDOWN</h1>
+        <p class="sub">마우스 클릭으로 훈련장 제어를 동기화하십시오.</p>
+        <p class="controls">
+            MOVE: W, A, S, D | FIRE: L-CLICK | RELOAD: R | JUMP: SPACE | <span style="color:#fff; text-shadow:0 0 10px #ff9900;">INFO: [F1]</span>
+        </p>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script>
+        // 1. 엔지니어링 환경 세팅
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05050b);
+        scene.fog = new THREE.FogExp2(0x05050b, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        dirLight.position.set(30, 50, 10);
+        scene.add(dirLight);
+
+        const gridHelper = new THREE.GridHelper(400, 80, 0x4455aa, 0x111530);
+        gridHelper.position.y = -2;
+        scene.add(gridHelper);
+
+        // 플레이어 스탯 및 물리 역학 데이터
+        let p_hp = 200; let p_ammo = 6; // 캐서디 피스키퍼는 6발 장전!
+        let p_ult = 0; let isHealing = false; let isReloading = false;
+
+        let velocityY = 0; const gravity = -0.015; const jumpStrength = 0.38; 
+        let isGrounded = true; const playerHeight = 1.5; 
+
+        // 실시간 날아가는 총알(투사체) 배열 관리
+        const playerBullets = [];
+        const enemyBullets = [];
+
+        // 2. 🤖 훈련용 로봇 텍스처 및 구조 정의
+        function createRobotTexture() {
+            const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#404a5a'; ctx.fillRect(0, 0, 128, 128);
+            ctx.fillStyle = '#ffcc00';
+            for(let i=0; i<128; i+=20) { ctx.beginPath(); ctx.moveTo(i,100); ctx.lineTo(i+10,100); ctx.lineTo(i+25,128); ctx.lineTo(i+15,128); ctx.fill(); }
+            ctx.strokeStyle = '#1a1f26'; ctx.lineWidth = 3; ctx.strokeRect(5, 5, 118, 90);
+            ctx.fillStyle = '#ff0033'; ctx.beginPath(); ctx.arc(64, 40, 12, 0, Math.PI * 2); ctx.fill();
+            return new THREE.CanvasTexture(canvas);
+        }
+        const robotTexture = createRobotTexture();
+        const targetMaterial = new THREE.MeshStandardMaterial({ map: robotTexture, metalness: 0.5, roughness: 0.4 });
+        const targetGeometry = new THREE.CylinderGeometry(1.2, 1.0, 4, 16);
+        const targets = [];
+
+        // 💡 [수정] 1초마다 자동 호출될 적 스폰 시스템 
+        function spawnSingleEnemy() {
+            if(!isLocked) return; // 포인터 락 상태일 때만 적 생성
+            if(targets.filter(b => b.position.y > -5).length >= 15) return; // 렉 방지용 최대 개수 제한
+
+            const enemy = new THREE.Mesh(targetGeometry, targetMaterial);
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 35 + Math.random() * 25; // 플레이어 적당히 근처 구역 스폰
+            
+            enemy.position.set(camera.position.x + Math.cos(angle) * radius, 0, camera.position.z + Math.sin(angle) * radius);
+            enemy.userData = { hp: 1, lastShotTime: 0, moveSpeed: 0.04 + Math.random() * 0.03 };
+            
+            scene.add(enemy); 
+            targets.push(enemy);
+        }
+        // 💡 주기적 스폰 타이머 작동 (1.5초마다 1명씩 무한 리스폰)
+        setInterval(spawnSingleEnemy, 1500);
+
+        // 3. 🤠 [신규] 캐서디 "피스키퍼" 리볼버 권총 조립 및 화면 배치
+        const gunGroup = new THREE.Group();
+
+        // 메탈 재질 세팅
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x888c8d, metalness: 0.9, roughness: 0.1 });
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3d28, roughness: 0.6 }); // 손잡이 나무 느낌
+
+        // 1) 권총 손잡이
+        const gripGeo = new THREE.BoxGeometry(0.08, 0.25, 0.12);
+        const grip = new THREE.Mesh(gripGeo, woodMat);
+        grip.position.set(0, -0.1, 0);
+        grip.rotation.x = 0.3;
+        gunGroup.add(grip);
+
+        // 2) 리볼버 핵심: 회전식 실린더 탄창 탄통
+        const cylinderGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.25, 12);
+        const cylinder = new THREE.Mesh(cylinderGeo, metalMat);
+        cylinder.rotation.x = Math.PI / 2;
+        cylinder.position.set(0, 0.06, -0.05);
+        gunGroup.add(cylinder);
+
+        // 3) 롱 라이플형 리볼버 권총 배럴 (총열)
+        const barrelGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.6, 8);
+        const barrel = new THREE.Mesh(barrelGeo, metalMat);
+        barrel.rotation.x = Math.PI / 2;
+        barrel.position.set(0, 0.09, -0.45);
+        gunGroup.add(barrel);
+
+        camera.add(gunGroup); 
+        scene.add(camera);
+
+        // 오른쪽 아래 편안하게 보이도록 완벽 정렬 포지셔닝
+        gunGroup.position.set(0.35, -0.32, -0.75);
+        gunGroup.rotation.set(0.02, -0.05, 0);
+
+        // 4. 입력 장치 관리 (포인터 락)
+        const instructions = document.getElementById('instructions');
+        const skillGuidePanel = document.getElementById('skill-guide-panel');
+        let isLocked = false; let isShowGuide = false;
+
+        instructions.addEventListener('click', () => { if(!isShowGuide) document.body.requestPointerLock(); });
+        document.addEventListener('pointerlockchange', () => {
+            if (isShowGuide) { isLocked = false; } 
+            else { isLocked = (document.pointerLockElement === document.body); instructions.style.display = isLocked ? 'none' : 'flex'; }
+        });
+
+        let yaw = 0, pitch = 0;
+        document.addEventListener('mousemove', (e) => {
+            if (!isLocked || isShowGuide) return;
+            yaw -= e.movementX * 0.002; pitch -= e.movementY * 0.002;
+            pitch = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, pitch));
+            camera.rotation.order = "YXZ"; camera.rotation.set(pitch, yaw, 0);
+        });
+
+        const keys = { w: false, a: false, s: false, d: false };
+        let canShift = true; let canE = true;
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F1') {
+                e.preventDefault(); isShowGuide = !isShowGuide;
+                if (isShowGuide) { document.exitPointerLock(); skillGuidePanel.style.display = 'flex'; } 
+                else { skillGuidePanel.style.display = 'none'; document.body.requestPointerLock(); }
+                return;
+            }
+            if(isShowGuide) return;
+            if (e.key === ' ' && isGrounded && isLocked) { velocityY = jumpStrength; isGrounded = false; }
+            
+            const k = e.key.toLowerCase(); 
+            if(keys.hasOwnProperty(k)) keys[k] = true;
+            if(k === 'r' && p_ammo < 6 && !isReloading) reloadRevolver(); // 장전 단축키
+            if(!isLocked) return;
+            
+            if(e.key === 'Shift' && canShift) {
+                canShift = false;
+                document.getElementById('shift-status').innerText = "COOLDOWN";
+                document.getElementById('shift-status').className = "cooldown";
+                const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                dir.y = 0; dir.normalize(); camera.position.addScaledVector(dir, 14);
+                setTimeout(() => { canShift = true; document.getElementById('shift-status').innerText = "READY"; document.getElementById('shift-status').className = "ready"; }, 3000);
+            }
+            if(k === 'e' && canE) spawnHealField();
+            if(k === 'q' && p_ult >= 100) triggerUltimate();
+        });
+        document.addEventListener('keyup', (e) => { if(e.key === ' ') return; if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
+        function reloadRevolver() {
+            isReloading = true;
+            document.getElementById('ammo').innerText = "RELOADING...";
+            gunGroup.rotation.z = -0.6; // 실린더 꺾는 듯한 모션 구현
+            setTimeout(() => {
+                p_ammo = 6;
+                isReloading = false;
+                document.getElementById('ammo').innerText = `${p_ammo} / 6`;
+                gunGroup.rotation.z = 0;
+            }, 1200);
+        }
+
+        function spawnHealField() {
+            canE = false; isHealing = true;
+            document.getElementById('e-status').innerText = "DEPLOYED"; document.getElementById('e-status').className = "cooldown";
+            const fieldGeo = new THREE.CylinderGeometry(6, 6, 0.1, 24);
+            const fieldMat = new THREE.MeshBasicMaterial({ color: 0x00ff66, transparent: true, opacity: 0.25 });
+            const field = new THREE.Mesh(fieldGeo, fieldMat);
+            field.position.set(camera.position.x, -1.9, camera.position.z); scene.add(field);
+
+            let duration = 0;
+            const interval = setInterval(() => {
+                if(!isLocked || isShowGuide) return;
+                const p2D = new THREE.Vector2(camera.position.x, camera.position.z);
+                const f2D = new THREE.Vector2(field.position.x, field.position.z);
+                const dist = p2D.distanceTo(f2D);
+                if(dist <= 6 && p_hp < 200) { p_hp = Math.min(200, p_hp + 20); document.getElementById('hp').innerText = p_hp; }
+                duration++;
+                if(duration >= 5) {
+                    clearInterval(interval); scene.remove(field); isHealing = false;
+                    document.getElementById('e-status').innerText = "쿨타임 중";
+                    setTimeout(() => { canE = true; document.getElementById('e-status').innerText = "READY"; document.getElementById('e-status').className = "ready"; }, 10000);
+                }
+            }, 1000);
+        }
+
+        function triggerUltimate() {
+            p_ult = 0; const ultCircle = document.getElementById('ult-circle');
+            ultCircle.innerText = "0%"; ultCircle.className = "";
+            targets.forEach(bot => {
+                if(bot.position.y > -5) {
+                    bot.position.y = -20;
+                    setTimeout(() => { bot.position.y = 0.25; }, 4000);
+                }
+            });
+            alert("석양이 진다... 골목의 모든 기계들을 처단했습니다!");
+        }
+
+        // 💡 [수정] 야간에도 눈에 엄청 잘 띄는 빛나는 탄환용 에셋 세팅
+        const bulletGeometry = new THREE.SphereGeometry(0.3, 8, 8); // 탄환 구체 크기 키움
+
+        // 5. 플레이어 사격 컨트롤 (투사체 가시화 버전)
+        document.addEventListener('mousedown', () => {
+            if (!isLocked || p_ammo <= 0 || isShowGuide || isReloading) return;
+            
+            p_ammo--; 
+            document.getElementById('ammo').innerText = `${p_ammo} / 6`;
+            
+            // 캐서디 리볼버 반동 애니메이션 대폭 강화 (위로 퉁 튕김)
+            gunGroup.position.z += 0.15; gunGroup.rotation.x = -0.2;
+            setTimeout(() => { gunGroup.position.z = -0.75; gunGroup.rotation.x = 0; }, 80);
+
+            // 💡 화면 정중앙 타겟팅 벡터 연산
+            const targetVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+            
+            // 내 총끝에서 나가는 하늘색 섬광 탄환 생성
+            const myBulletMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // 스스로 빛나는 밝은 하늘색
+            const pBullet = new THREE.Mesh(bulletGeometry, myBulletMat);
+            
+            // 총구 앞 포지션으로 배치
+            pBullet.position.copy(camera.position).addScaledVector(targetVector, 1.2);
+            pBullet.userData = { direction: targetVector, speed: 1.5 }; // 플레이어 총알 속도는 매우 빠름
+            
+            scene.add(pBullet);
+            playerBullets.push(pBullet);
+
+            if(p_ammo === 0 && !isReloading) { setTimeout(reloadRevolver, 300); }
+        });
+
+        // 💡 적 로봇이 쏘는 구체 발사 로직 (크기를 키우고 이펙트 강화)
+        function enemyShoot(bot) {
+            const eBulletMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 }); // 황금빛으로 이글거리는 가시 탄환
+            const bullet = new THREE.Mesh(bulletGeometry, eBulletMat);
+            bullet.position.copy(bot.position);
+            bullet.position.y += 1.0; 
+            
+            const dir = new THREE.Vector3().subVectors(camera.position, bullet.position).normalize();
+            bullet.userData = { direction: dir, speed: 0.45 }; // 날아오는 속도 눈으로 보며 피하게끔 최적화
+            
+            scene.add(bullet);
+            enemyBullets.push(bullet);
+        }
+
+        const pSpeed = 0.22; camera.position.set(0, playerHeight, 20);
+        const hitmarker = document.getElementById('hitmarker');
+
+        // 6. 물리엔진 및 프레임별 리얼타임 루프 애니메이션
+        function animate() {
+            requestAnimationFrame(animate); if (isShowGuide) return;
+            const currentTime = performance.now();
+
+            if (isLocked) {
+                // 중력 작용 연산
+                velocityY += gravity; camera.position.y += velocityY;
+                if (camera.position.y <= playerHeight) { camera.position.y = playerHeight; velocityY = 0; isGrounded = true; }
+
+                // 이동 제어
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion); forward.y = 0; forward.normalize();
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion); right.y = 0; right.normalize();
+
+                if (keys.w) camera.position.addScaledVector(forward, pSpeed);
+                if (keys.s) camera.position.addScaledVector(forward, -pSpeed);
+                if (keys.a) camera.position.addScaledVector(right, -pSpeed);
+                if (keys.d) camera.position.addScaledVector(right, pSpeed);
+
+                // 💡 [신규] 플레이어가 쏜 하늘색 총알 이동 및 적 충돌 연산
+                for (let i = playerBullets.length - 1; i >= 0; i--) {
+                    const pb = playerBullets[i];
+                    pb.position.addScaledVector(pb.userData.direction, pb.userData.speed);
+
+                    // 적들과의 충돌 여부 체크
+                    let hitTriggered = false;
+                    for (let j = 0; j < targets.length; j++) {
+                        const bot = targets[j];
+                        if (bot.position.y < -5) continue; // 이미 죽은 봇 예외처리
+
+                        // 총알과 봇 사이의 물리적 거리 측정
+                        if (pb.position.distanceTo(bot.position) < 1.8) {
+                            hitmarker.style.display = 'block'; setTimeout(() => hitmarker.style.display = 'none', 80);
+                            bot.position.y = -20; // 땅밑으로 소환 해제 처리
+                            p_ult = Math.min(100, p_ult + 20);
+                            
+                            const ultCircle = document.getElementById('ult-circle'); ultCircle.innerText = p_ult + "%";
+                            if(p_ult >= 100) { ultCircle.className = "ult-ready"; ultCircle.innerText = "READY"; }
+                            
+                            scene.remove(pb); playerBullets.splice(i, 1);
+                            hitTriggered = true; break;
+                        }
+                    }
+                    if (hitTriggered) continue;
+                    if (pb.position.length() > 250) { scene.remove(pb); playerBullets.splice(i, 1); }
+                }
+
+                // 💡 적이 쏜 황금색 총알 이동 및 플레이어 충돌 연산
+                for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                    const b = enemyBullets[i];
+                    b.position.addScaledVector(b.userData.direction, b.userData.speed);
+
+                    if (b.position.distanceTo(camera.position) < 1.3) {
+                        p_hp = Math.max(0, p_hp - 10);
+                        document.getElementById('hp').innerText = p_hp;
+
+                        const flash = document.getElementById('damage-flash'); flash.style.background = "rgba(255, 0, 0, 0.25)";
+                        setTimeout(() => flash.style.background = "rgba(255, 0, 0, 0)", 100);
+                        
+                        scene.remove(b); enemyBullets.splice(i, 1);
+
+                        if(p_hp <= 0) {
+                            alert("전사하셨습니다! 시스템을 리셋합니다.");
+                            p_hp = 200; p_ult = 0; p_ammo = 6;
+                            document.getElementById('hp').innerText = p_hp;
+                            document.getElementById('ult-circle').innerText = "0%"; document.getElementById('ult-circle').className = "";
+                            camera.position.set(0, playerHeight, 20);
+                        }
+                        continue;
+                    }
+                    if (b.position.length() > 250) { scene.remove(b); enemyBullets.splice(i, 1); }
+                }
+
+                // 봇 AI 행동 제어 패턴
+                targets.forEach(bot => {
+                    if (bot.position.y < -5) return;
+                    bot.lookAt(camera.position.x, bot.position.y, camera.position.z);
+                    const dirToPlayer = new THREE.Vector3().subVectors(camera.position, bot.position);
+                    dirToPlayer.y = 0; const distance = dirToPlayer.length(); dirToPlayer.normalize();
+
+                    if (distance > 5) bot.position.addScaledVector(dirToPlayer, bot.userData.moveSpeed);
+
+                    // 시야 사거리 내 도달 시 1.8초마다 사격 유도
+                    if (distance < 40 && currentTime - bot.userData.lastShotTime > 1800) {
+                        bot.userData.lastShotTime = currentTime;
+                        enemyShoot(bot);
+                    }
+                });
+            }
+            if(Math.abs(camera.position.x) > 150) camera.position.x = Math.sign(camera.position.x) * 150;
+            if(Math.abs(camera.position.z) > 150) camera.position.z = Math.sign(camera.position.z) * 150;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
